@@ -1,0 +1,2315 @@
+
+❯ I want to make sure that I understand the problem and the task correctly, so
+  here is what I get so far and correct me and explain if I am wrong.
+  Lets start by the main task only now.
+  We need to go through each request in the deletion requests file and:
+  - check its deletion status
+  - determain its status using the rules from deletion rules
+  - supply the steps for the case, if compelete then we should supply
+  verfications for the claim
+  - if not, we should provide a remediation plan to convert it to compelete
+  - if not applicable then we pass an empty list
+    is that correct ?
+
+  Listed 1 directory, ran 2 shell commands (ctrl+o to expand)
+
+● Bash(TS=$(date -u +%Y-%m-%dT%H:%M:%SZ) && cat >> log.txt <<EOF
+      ## [$TS] SESSION START…)
+  ⎿  tool=Claude Code
+     model=claude-opus-5-5
+  ⎿  Created log.txt (+39 -0)
+       1 +## [2026-10-24T13:43:03Z] SESSION START                        
+       2 +                                                               
+       3 +tool=Claude Code                                               
+       4 +model=claude-opus-5-5                                          
+       5 +Repo Root: /home/moaz-dev/dev/projects/hackerrank-orchestrate-o
+         +ctober26                                                       
+       6 +Branch: main                                                   
+       7 +Worktree: main                                                 
+       8 +Parent Agent: none                                             
+       9 +Language: custom:undecided                                     
+      10 +Time Remaining: not configured                                 
+      11 +                                                               
+      12 +## [2026-10-24T13:43:03Z] Clarify understanding of the main tas
+         +k                                                              
+      13 +                                                               
+      14 +User Prompt (verbatim, secrets redacted):                      
+      15 +I want to make sure that I understand the problem and the task 
+         +correctly, so here is what I get so far and correct me and expl
+         +ain if I am wrong.                                             
+      16 +Lets start by the main task only now.                          
+      17 +We need to go through each request in the deletion requests fil
+         +e and:                                                         
+      18 +- check its deletion status                                    
+      19 +- determain its status using the rules from deletion rules     
+      20 +- supply the steps for the case, if compelete then we should su
+         +pply verfications for the claim                                
+      21 +- if not, we should provide a remediation plan to convert it to
+         + compelete                                                     
+      22 +- if not applicable then we pass an empty list                 
+      23 +is that correct ?                                              
+      24 +                                                               
+      25 +Agent Response Summary:                                        
+      26 +Read problem_statement.md, deletion_rules.csv and sample_output
+         +.csv to confirm the task. Confirmed the user's outline is broad
+         +ly right and corrected/sharpened it: NOT_APPLICABLE is decided 
+         +first from request_text; reported_status is only a claim (sampl
+         +es show COMPLETE claims that are INCOMPLETE and vice versa); st
+         +ate must be reconstructed from evidence at audit_at using curre
+         +nt+historical identifiers; INCOMPLETE cases need findings + rem
+         +ediation + verification, with strict ordering and evidence_id r
+         +ules. No code written.                                         
+      27 +                                                               
+      28 +Actions:                                                       
+      29 +* Read problem_statement.md, dataset/deletion_rules.csv, datase
+         +t/sample_output.csv, dataset/sample_deletion_requests.csv      
+      30 +* Appended session start and turn entries to log.txt           
+      31 +                                                               
+      32 +Context:                                                       
+      33 +tool=Claude Code                                               
+      34 +model=claude-opus-5-5                                          
+      35 +branch=main                                                    
+      36 +repo_root=/home/moaz-dev/dev/projects/hackerrank-orchestrate-oc
+         +tober26                                                        
+      37 +worktree=main                                                  
+      38 +parent_agent=none                                              
+      39 +                                                               
+
+● Welcome to HackerRank Orchestrate. Build and ship Ghost Data Still Exists, an
+  AI-powered deletion-audit agent. Let's get started.
+
+  (The repo doesn't set a challenge end time, so I can't show how much time is
+  left.)
+
+  Your outline is mostly right. Three parts need correcting, and the order of
+  the work matters. I checked it against problem_statement.md,
+  deletion_rules.csv (dataset/deletion_rules.csv) and sample_output.csv
+  (dataset/sample_output.csv).
+
+  Corrections
+
+  1. "Check its deletion status": don't trust the reported_status column.
+  That column is what the old workflow claims, and it is often wrong:
+  - case_05 is reported COMPLETE, but the correct answer is INCOMPLETE because
+    the account still exists.
+  - case_26 is reported NOT_STARTED, but the correct answer is COMPLETE.
+
+  You work out the real status yourself from the evidence. That means the SQL
+  snapshots, logs, PDFs, screenshots, JSON, system_activity.csv and the audit
+  log.
+
+  2. NOT_APPLICABLE comes first, and it depends only on the request text.
+  Before any investigation, read request_text (which may not be in English) and
+  decide whether the person actually asked for deletion. If they asked for
+  access, correction, export, or a marketing opt-out, the answer is
+  NOT_APPLICABLE with []. None of the 32 samples is NOT_APPLICABLE, so you can't
+  learn this from them.
+
+  3. The deletion rules don't give you the status directly.
+  The rules tell you what each record should look like. For example:
+  USER_PROFILE → DELETE, SUPPORT_MESSAGE → REDACT, ANALYTICS_PROFILE →
+  ANONYMIZE, SECURITY_AUDIT_LOG → RETAIN, ACCOUNT_TOMBSTONE → REDACT (keep the
+  user_id, remove name, email, phone and hash).
+
+  The status comes from comparing that required state with the actual state at
+  audit_at. The case is COMPLETE only when all four of these hold:
+  - every relevant record got its required treatment;
+  - every record that must be retained still exists;
+  - no sync, import or restore process is still active and able to recreate the
+    data;
+  - retained records keep only the identifiers they're allowed to.
+
+  The full flow for each case
+
+  1. Authorization: does the request text actually ask for deletion? If not,
+     return NOT_APPLICABLE, [].
+  2. Identity resolution: the request email may be a current or a past address.
+     Use user_identities.csv together with user_audit_log.csv to collect every
+     email, phone and hash the person has used, plus their stable user_id.
+  3. Evidence search: find the records that match any of those identifiers. Use
+     only evidence at or before audit_at; anything later is ignored. Many files
+     are decoys or belong to other people.
+  4. Apply the rules: compare each record's required state with its actual
+     state.
+  5. Output:
+     - COMPLETE: only VERIFICATION steps, each citing evidence (evidence_id
+       filled in).
+     - INCOMPLETE: three blocks in this order:
+       - FINDING steps, each citing evidence;
+       - REMEDIATION steps, with an empty evidence_id;
+       - VERIFICATION steps, also with an empty evidence_id, because they
+         describe checks for after the fix.
+
+  Two details that are easy to miss (from case_11)
+
+  FINDING      REPORT_REMAINING_RECORD   search_052          evidence_03
+  FINDING      REPORT_EXPOSED_PII        analytics_2034      evidence_03
+  FINDING      REPORT_EXPOSED_PII        support_864         evidence_03
+  FINDING      REPORT_ACTIVE_DATA_FLOW   data_flow_9522      evidence_03
+  REMEDIATION  DISABLE_DATA_FLOW         data_flow_9522      ""   ← stop the
+  sync first
+  REMEDIATION  DELETE_RECORD             search_052          ""
+  REMEDIATION  REDACT_RECORD             support_864         ""
+  REMEDIATION  ANONYMIZE_RECORD          analytics_2034      ""
+  VERIFICATION VERIFY_RECORD_ABSENT      account_4248        ""   ← already
+  compliant, still verified
+  VERIFICATION VERIFY_RECORD_ABSENT      search_052          ""
+  VERIFICATION VERIFY_RECORD_PRESENT     audit_record_9394   ""   ← retained
+  record must still exist
+  ...
+
+  - Verification covers the whole required end state, not just the records you
+    fixed. Records that were already correct (the deleted account, the retained
+    audit record) still get a check.
+  - The order is strict. Steps go by phase first. Within each phase they follow
+    the order of operations in the allowed-operations table, then system_id,
+    then resource_id, all ascending. That is why disabling the data flow and
+    blocking restores always come before changing any records.
+
+  If you're happy with this, a good next step is to look at one sample case end
+  to end, tracing its evidence files to the answer, to see how the evidence
+  connects to the case.
+
+❯ Ok great, lets discuss the solution.
+  I think this problem fits langGraph very well right?
+  I am thinking of creating a workflow that evaluates each case and do the
+  checks, which will fit the graph nature of langraph very well in my opinion.
+  I am also thinking of loading some of the data into a light db (like sql
+  light) to make reteravls easier and faster. What do you think
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Bash(cd /home/moaz-dev/dev/projects/hackerrank-orchestrate-october26 &&
+      TS=$(date -u +%Y-%m-%dT%H:%M:%SZ) && cat >> log.txt <<EOF
+      ## [$TS] Discuss architecture: Lang…)
+  ⎿  2
+  ⎿  Updated log.txt (+22 -0)
+      37  worktree=main
+      38  parent_agent=none
+      39  
+      40 +## [2026-10-24T14:10:38Z] Discuss architecture: LangGraph workf
+         +low and SQLite store                                           
+      41 +                                                               
+      42 +User Prompt (verbatim, secrets redacted):                      
+      43 +Ok great, lets discuss the solution.                           
+      44 +I think this problem fits langGraph very well right?           
+      45 +I am thinking of creating a workflow that evaluates each case a
+         +nd do the checks, which will fit the graph nature of langraph v
+         +ery well in my opinion. I am also thinking of loading some of t
+         +he data into a light db (like sql light) to make reteravls easi
+         +er and faster. What do you think                               
+      46 +                                                               
+      47 +Agent Response Summary:                                        
+      48 +Sized the dataset (94 evidence files, 3.1MB, shared across many
+         + cases; 4011 activity rows) and inspected a cited evidence file
+         +. Endorsed SQLite strongly and recommended a two-stage design: 
+         +one-time ingestion that normalizes all evidence into a time-sta
+         +mped observations table (LLM only for PDFs/images and request-i
+         +ntent classification, cached), then a mostly deterministic per-
+         +case pipeline. Advised that LangGraph is optional: the per-case
+         + flow is a near-linear DAG, so it adds value mainly for a valid
+         +ate-and-retry loop and interview narrative, not for making an L
+         +LM the investigator per case.                                  
+      49 +                                                               
+      50 +Actions:                                                       
+      51 +* Ran wc/find/head over dataset/ CSVs and evidence; read eviden
+         +ce/records/customer_account_handover_20261001.txt (excerpt)    
+      52 +* Appended turn entry to log.txt                               
+      53 +                                                               
+      54 +Context:                                                       
+      55 +tool=Claude Code                                               
+      56 +model=claude-opus-5-5                                          
+      57 +branch=main                                                    
+      58 +repo_root=/home/moaz-dev/dev/projects/hackerrank-orchestrate-oc
+         +tober26                                                        
+      59 +worktree=main                                                  
+      60 +parent_agent=none                                              
+      61 +                                                               
+
+● Yes to SQLite. LangGraph works too, but the shape of the data argues against
+  using it the way you describe, with an agent working through each case on its
+  own. I checked the dataset to ground this.
+
+  What the data looks like
+
+  - The evidence is small and shared: 94 files, 3.1 MB in total (24 SQL, 28
+    JSON, 26 logs, 11 PNG screenshots, 4 PDFs, 1 TXT).
+  - One file covers many people. evidence_03, a shift-handover text file, has
+    status lines for dozens of accounts:
+  2026-10-01T12:00:00Z | analytics_platform | analytics_2034 | ANALYTICS_PROFILE
+  | IDENTIFIABLE | novak.tomasz@icloud.com
+  - system_activity.csv has about 4,000 events: deletes, syncs, exports,
+    data-flow checks, restore blocks and so on.
+
+  So evaluating each case independently would re-read and re-interpret the same
+  ~94 files 518 times. That costs a lot of tokens, it's slow, and two cases can
+  read the same file differently.
+
+  Recommendation: two stages
+
+  Stage 1: ingest everything once into SQLite. This is where your DB idea pays
+  off. Turn every evidence source into one common table of facts:
+
+  observations(evidence_id, observed_at, system_id, resource_id,
+               data_category, state, identifier, source_kind)
+
+  - SQL snapshots: they're SQLite-compatible, so run them directly. Keep the
+    replica name and snapshot time, because primary and replica copies can
+    disagree.
+  - Logs, JSON, TXT: parse them with code (regex or a JSON parser). No LLM
+    needed.
+  - PDFs and PNGs (15 files): extract with an LLM or vision model into a fixed
+    schema, once. Cache the result by file hash.
+  - Identities: combine user_identities and user_audit_log into an identifier →
+    user_id alias table that includes past emails, phones and hashes. Normalize
+    case, because the evidence has values like CHOI.JIHOON94@GMAIL.COM.
+
+  Stage 2: per-case reasoning, mostly in plain code.
+  1. Classify the request with an LLM. This is the one step that really needs
+     it: multilingual text and subtle intent like export vs. erase. Batch it,
+     cache it, and use a fixed output format.
+  2. Resolve identity with a SQL lookup.
+  3. Reconstruct state. For each resource linked to the user, take the latest
+     observation at or before audit_at. SQL handles this well.
+  4. Apply policy by mapping data_category to the action in deletion_rules.csv.
+  5. Plan and serialize using the fixed ordering rules: phase, then operation
+     order, then system_id, then resource_id.
+  6. Validate against the output contract.
+
+  This is deterministic, cheap, and easy to debug against the 32 samples. The
+  LLM is used where its judgment adds value, not for joins and sorting.
+
+  Where LangGraph fits
+
+  The per-case flow is mostly a straight line with one early exit:
+
+  classify ──NA──> END
+     └─> resolve_identity → gather_observations → reconstruct_state
+         → apply_policy → plan_steps → validate ──fail──> (repair / LLM review)
+  ──┐
+                                          └─pass──> END
+   │
+
+  ^───────────────────────────────────────┘
+
+  LangGraph earns its place in two spots:
+  - The validate → repair loop. An LLM steps in only when the deterministic
+    result is ambiguous, for example an unlinked identifier, conflicting
+    replicas, or an unclear "is this flow still active?"
+  - Explaining the architecture in the AI interview. A graph diagram is easy to
+    walk through.
+
+  It isn't worth it if every node is an LLM call doing the investigation. That's
+  the version I'd steer you away from.
+
+  Suggested path: write the nodes as plain Python functions first and get them
+  matching the samples. Wrapping them in a LangGraph StateGraph afterwards is
+  cheap, so you can decide then whether the orchestration is worth it.
+
+  Next step: profile the evidence formats (what fields each SQL table, JSON
+  bundle and log type contains) and design the observations schema. Every later
+  step depends on that table being right.
+
+❯ I did not mean that each step would be an llm node doing the work. I just
+  meant I will use the graph nature and nodes in langgraph ot implement the
+  steps and only use expensive llm calls when needed. I guess it is needed only
+  in the first step if I am correct. Which is to assess whether the case is a
+  real delete or not.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Bash(TS=$(date -u +%Y-%m-%dT%H:%M:%SZ) && cat >> log.txt <<EOF
+      ## [$TS] Clarify where LLM calls are actually needed…)
+  ⎿  2
+  ⎿  Updated log.txt (+20 -0)
+      59  worktree=main
+      60  parent_agent=none
+      61  
+      62 +## [2026-10-24T14:15:13Z] Clarify where LLM calls are actually 
+         +needed                                                         
+      63 +                                                               
+      64 +User Prompt (verbatim, secrets redacted):                      
+      65 +I did not mean that each step would be an llm node doing the wo
+         +rk. I just meant I will use the graph nature and nodes in langg
+         +raph ot implement the steps and only use expensive llm calls wh
+         +en needed. I guess it is needed only in the first step if I am 
+         +correct. Which is to assess whether the case is a real delete o
+         +r not.                                                         
+      66 +                                                               
+      67 +Agent Response Summary:                                        
+      68 +Agreed that LangGraph with deterministic nodes is a good fit. C
+         +hecked the data: system_activity details collapse to ~28 fixed 
+         +templates and logs/JSON/SQL/TXT are structured, so they parse w
+         +ithout an LLM. Corrected the user's assumption: besides request
+         +-intent classification, the 11 PNG screenshots (and possibly th
+         +e 4 PDFs) need vision/OCR extraction, but that is a one-time in
+         +gestion step, cached, not per case. Suggested an optional LLM f
+         +allback only for ambiguous linkage.                            
+      69 +                                                               
+      70 +Actions:                                                       
+      71 +* Listed PNG/PDF evidence in evidence_files.csv; templated syst
+         +em_activity details; sampled request_text values               
+      72 +* Appended turn entry to log.txt                               
+      73 +                                                               
+      74 +Context:                                                       
+      75 +tool=Claude Code                                               
+      76 +model=claude-opus-5-5                                          
+      77 +branch=main                                                    
+      78 +repo_root=/home/moaz-dev/dev/projects/hackerrank-orchestrate-oc
+         +tober26                                                        
+      79 +worktree=main                                                  
+      80 +parent_agent=none                                              
+      81 +                                                               
+
+● Got it, I misread you. LangGraph nodes with plain code inside, and an LLM only
+  where it's needed, is a good design.
+
+  You're almost right about where the LLM is needed. Classifying the request is
+  the main per-case use, but there's one more place, and it happens at ingestion
+  rather than per case.
+
+  1. Request classification (per case): yes, use an LLM
+
+  The request text can be in different languages, and the intent can be subtle
+  ("export my data" vs. "erase my data"). Use a cheap model with a fixed output
+  format like {authorizes_deletion: bool}, batch several requests per call, and
+  cache the results. This is the only LLM call in the per-case graph.
+
+  2. Screenshots and PDFs (once, at ingestion): also needs a model
+
+  15 evidence files aren't text:
+  - 11 PNG screenshots: account admin console, search index inspector, connector
+    console, backup/restore console, marketing profile, and others.
+  - 4 PDFs: account history report, legal retention register, security retention
+    extract, delivery correction attachment.
+
+  The screenshots need a vision model or OCR. The PDFs may have a text layer
+  that a library like pypdf can read without any model; that's worth checking
+  first. Either way, it's a fixed one-time cost: extract each file once into
+  your observations table, cache by file hash, and never touch it again per
+  case.
+
+  These files probably matter. The legal retention register likely decides
+  LEGAL_HOLD_RECORD → RETAIN, and the backup console likely decides restore
+  risk, so skipping them would cost accuracy.
+
+  Everything else is code
+
+  I checked the activity log: its details text comes down to about 28 fixed
+  sentence patterns, for example:
+  Connector status check confirmed that data flow X remains enabled.
+  Active connector repopulated downstream resource X.
+  Restore-access check confirmed that archive X can still be restored.
+  Privacy intake classified request for X as non-deletion; no destructive action
+  was authorized.
+  Regex handles all of them. The logs, JSON, SQL and TXT files are structured
+  too, so parsing, identity resolution, rebuilding the state at audit_at,
+  applying the policy and ordering the steps are all deterministic.
+
+  Optional third use
+
+  If something stays ambiguous after the deterministic pass, such as an
+  identifier you can't link or two sources that disagree, add a fallback node
+  that sends just that case to an LLM. You may never need it; check how many
+  sample cases fail before building it.
+
+  The resulting graph:
+  [ingest once]  parse structured files ─┐
+                 vision/OCR PNG+PDF ─────┴─> SQLite (observations, aliases,
+  activity, rules)
+
+  [per case]  classify (LLM) ──NA──> END
+                 └─> resolve_identity → reconstruct_state → apply_policy → plan
+  → validate → END
+
+  Next step: profile the evidence formats and design the observations schema,
+  since every node after ingestion reads from it.
+
+❯ <ide_opened_file>The user opened the file /home/moaz-dev/dev/projects/hackerr
+  ank-orchestrate-october26/problem_statement.md in the IDE. This may or may
+  not be related to the current task.</ide_opened_file>
+
+❯ if we ignored what I said completely, what stack or tools would you recommend
+  ?
+
+● Skill(claude-api)
+  ⎿  Successfully loaded skill · 1 tool allowed
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Bash(TS=$(date -u +%Y-%m-%dT%H:%M:%SZ) && cat >> log.txt <<EOF
+      ## [$TS] Recommend a stack from scratch…)
+  ⎿  2
+  ⎿  Updated log.txt (+21 -0)
+       79  worktree=main
+       80  parent_agent=none
+       81  
+       82 +## [2026-10-24T14:17:11Z] Recommend a stack from scratch      
+       83 +                                                              
+       84 +User Prompt (verbatim, secrets redacted):                     
+       85 +if we ignored what I said completely, what stack or tools woul
+          +d you recommend ?                                             
+       86 +                                                              
+       87 +Agent Response Summary:                                       
+       88 +Gave an unanchored stack recommendation: Python 3.12 + uv, std
+          +lib sqlite3, pydantic for schemas/output validation, pypdf for
+          + PDF text layers, Anthropic SDK (claude-opus-5-5, low effort, 
+          +structured outputs, Message Batches) for request classificatio
+          +n and one-time PNG/PDF extraction, a disk cache keyed by input
+          + hash for determinism, and a local eval script against sample_
+          +output.csv that also feeds the evaluation and usage reports. R
+          +ecommended plain Python functions over LangGraph since the flo
+          +w is a near-linear DAG, and estimated total LLM cost at a few 
+          +dollars or less.                                              
+       89 +                                                              
+       90 +Actions:                                                      
+       91 +* Loaded claude-api skill for current model IDs and pricing   
+       92 +* Checked code/main.py (empty starter) and Python version (3.1
+          +2.3)                                                          
+       93 +* Appended turn entry to log.txt                              
+       94 +                                                              
+       95 +Context:                                                      
+       96 +tool=Claude Code                                              
+       97 +model=claude-opus-5-5                                         
+       98 +branch=main                                                   
+       99 +repo_root=/home/moaz-dev/dev/projects/hackerrank-orchestrate-o
+          +ctober26                                                      
+      100 +worktree=main                                                 
+      101 +parent_agent=none                                             
+      102 +                                                              
+
+● Starting from zero, I'd use a plain Python pipeline with no orchestration
+  framework, SQLite as the store, and the Claude API called in only two places.
+
+  Recommended stack
+
+  Layer: Language
+  Choice: Python 3.12 (you have 3.12.3), managed with uv
+  Why: Best fit for the data work. code/main.py is already the expected entry
+  point.
+  ────────────────────────────────────────
+  Layer: Orchestration
+  Choice: Plain Python functions, one module per stage
+  Why: The per-case flow is a straight line with one early exit, so a framework
+  adds dependencies and indirection without buying much.
+  ────────────────────────────────────────
+  Layer: Storage
+  Choice: stdlib sqlite3, no ORM
+  Why: Built in. The SQL evidence snapshots can be loaded directly, and "latest
+  state at or before audit_at" is one query.
+  ────────────────────────────────────────
+  Layer: Schemas and validation
+  Choice: pydantic
+  Why: One model each for observations, steps and output rows. It catches
+  contract errors (bad operation/state pairs, numbering, phase order) before
+  you submit.
+  ────────────────────────────────────────
+  Layer: PDFs
+  Choice: pypdf first
+  Why: If the 4 PDFs have a text layer, they need no model at all.
+  ────────────────────────────────────────
+  Layer: Screenshots, and PDFs without text
+  Choice: Claude vision, one call per file, once
+  Why: Use structured output into your observations schema. 15 files at most.
+  ────────────────────────────────────────
+  Layer: Request intent
+  Choice: Claude, structured output {authorizes_deletion, language, reason}
+  Why: Handles multilingual and subtle intent. Send the 518 requests through the
+
+  Message Batches API, which costs 50% less.
+  ────────────────────────────────────────
+  Layer: LLM cache
+  Choice: JSON on disk, keyed by sha256(input + prompt_version)
+  Why: Reruns are free and give identical results, which the contract asks for.
+  ────────────────────────────────────────
+  Layer: Evaluation
+  Choice: pytest plus an eval.py that scores against sample_output.csv
+  Why: Measures status, step-level, field-level and sequence accuracy. Its
+  output
+  goes straight into evaluation_report.md.
+  ────────────────────────────────────────
+  Layer: Usage tracking
+  Choice: Log response.usage from every call to a file
+  Why: Generates usage_report.md automatically from the real final run.
+
+  Model and cost
+
+  - Model: claude-opus-5-5 at effort: "low", which suits classification and
+    extraction.
+  - Request classification: 518 requests × roughly 300 tokens ≈ 160K input
+    tokens. At $4 per million input tokens that's under $1 before the batch
+    discount.
+  - Vision extraction: a one-time cost of well under $1.
+
+  So the whole LLM bill is a few dollars at most, and it isn't worth optimizing
+  until it works. If you want it even cheaper, claude-haiku-5-5 costs
+  $0.10/$0.50 per million tokens, about 40× less. Only switch if it scores the
+  same on the 32 samples; that's your call.
+
+  Project layout
+
+  code/
+    main.py              # ingest (if cache is stale) → run all cases → write
+  ../output.csv
+    ingest/              # one parser per format: sql, json, log, txt, pdf,
+  image(LLM)
+    store.py             # SQLite schema + queries (aliases, observations,
+  activity, rules)
+    classify.py          # request intent (LLM, batched, cached)
+    audit.py             # resolve identity → reconstruct state → apply policy
+    plan.py              # findings / remediation / verification + ordering
+    schema.py            # pydantic models + output validator
+    llm.py               # Anthropic client, cache, usage logging
+    eval.py              # scores against sample_output.csv
+    evaluation/
+
+  Where your earlier ideas fit: SQLite, yes, at the centre. LangGraph, only if
+  you want the graph for the AI interview. Because each stage is a plain
+  function, you can wrap them in a StateGraph later in about an hour without
+  changing their logic.
+
+  The design choice that matters most isn't the stack. It's the shape of the
+  observations table and how well the parsers fill it. That's where I'd start
+  next.
+
+❯ why not langgraph though? what is the drawbacks or the advantages of your
+  implementation
+
+● Bash(TS=$(date -u +%Y-%m-%dT%H:%M:%SZ) && cat >> log.txt <<EOF
+      ## [$TS] Compare LangGraph vs plain Python pipeline…)
+  ⎿  2
+  ⎿  Updated log.txt (+19 -0)
+      100  worktree=main
+      101  parent_agent=none
+      102  
+      103 +## [2026-10-24T14:20:23Z] Compare LangGraph vs plain Python pi
+          +peline                                                        
+      104 +                                                              
+      105 +User Prompt (verbatim, secrets redacted):                     
+      106 +why not langgraph though? what is the drawbacks or the advanta
+          +ges of your implementation                                    
+      107 +                                                              
+      108 +Agent Response Summary:                                       
+      109 +Gave a balanced comparison. LangGraph advantages: explicit gra
+          +ph/state, conditional edges and retry loops, visualization and
+          + tracing for the AI interview, easy growth into an LLM fallbac
+          +k node. Drawbacks here: the two global steps (ingestion, batch
+          +ed classification across all cases) do not fit a per-case grap
+          +h, extra dependency/abstraction, checkpointing is unnecessary 
+          +for a seconds-long run. Concluded it is a close call; if using
+          + LangGraph, keep ingest and batch classification outside the g
+          +raph, run the per-case graph over deterministic nodes, and cal
+          +l the Anthropic SDK directly.                                 
+      110 +                                                              
+      111 +Actions:                                                      
+      112 +* Appended turn entry to log.txt                              
+      113 +                                                              
+      114 +Context:                                                      
+      115 +tool=Claude Code                                              
+      116 +model=claude-opus-5-5                                         
+      117 +branch=main                                                   
+      118 +repo_root=/home/moaz-dev/dev/projects/hackerrank-orchestrate-o
+          +ctober26                                                      
+      119 +worktree=main                                                 
+      120 +parent_agent=none                                             
+      121 +                                                              
+
+● It's closer than my last answer made it sound. The per-case logic is the same
+  code either way, so the question is only what wraps it.
+
+  Where LangGraph actually helps
+
+  1. Diagram for the AI interview. graph.get_graph().draw_mermaid() gives you a
+     picture of the architecture for free. You'll have to explain the design to
+     an interviewer, and that helps.
+  2. Branches and loops are visible. The NOT_APPLICABLE exit and a "validate →
+     repair → validate" loop are declared as edges instead of buried in if/while
+     code.
+  3. One typed state object (CaseState) travels through the nodes. It's easy to
+     see what each step reads and writes.
+  4. Room to grow. If the samples show you need an LLM fallback for ambiguous
+     cases, you add one node and one conditional edge.
+  5. Tracing. With LangSmith (or another tracer) you can look inside any failing
+     case node by node. That's useful when you debug the 32 samples.
+
+  Where it costs you
+
+  1. The two most important steps aren't per-case. Ingestion runs once over all
+     94 files. Classification works best as one batch across all 518 cases
+     (cheaper, and one cache). A graph where each run handles one case doesn't
+     fit either step, so they end up outside the graph anyway.
+  2. Most of its built-in features go unused. Checkpointing, resume,
+     human-in-the-loop and streaming are built for long or interactive agent
+     runs. Once the LLM results are cached, this job takes seconds.
+  3. An extra layer when debugging. Stack traces go through the framework, and
+     the rules for how state updates are merged can surprise you. Plain
+     functions can be called directly from a test.
+  4. Token tracking can get hidden. If you call the model through LangChain's
+     chat-model wrappers, exact usage numbers for usage_report.md are harder to
+     get. Calling the Anthropic SDK directly inside nodes avoids this.
+  5. More dependencies to install. A small cost, but a real one for a "clean run
+     from the README".
+
+  Plain Python, honestly
+
+  - Pros: fewest moving parts, quick to debug, each function testable on its
+    own, batching across cases comes naturally.
+  - Cons: no free diagram or tracing, you write your own retry loop, and the
+    architecture story in the interview is less visual.
+
+  My verdict
+
+  If you know LangGraph and value the interview story, use it. Just set it up
+  this way:
+
+  main.py
+    ├─ ingest()                      # global, once, outside the graph
+    ├─ classify_all(cases)           # global, batched LLM, outside the graph
+    └─ for case in cases:
+          case_graph.invoke(state)   # LangGraph: resolve → reconstruct → policy
+  → plan → validate ⟲ repair
+
+  - Keep the nodes deterministic, as you planned.
+  - Call the Anthropic SDK directly in the few nodes that need a model.
+  - Don't try to force ingestion or batch classification into the graph.
+
+  That way you get LangGraph's benefits without its drawbacks. If you don't care
+  about LangGraph, plain functions are a bit simpler. Either choice is fine;
+  what matters for the score is the ingestion quality and getting the rules
+  right, not the orchestration.
+
+❯ <ide_opened_file>The user opened the file
+  /home/moaz-dev/dev/projects/hackerrank-orchestrate-october26/README.md in the
+  IDE. This may or may not be related to the current task.</ide_opened_file>
+
+❯ there is another aspect I did not talk about, I prefer to have a system that
+  is vendor agnostic, I think this fits langgraph better, right ?
+
+● Bash(TS=$(date -u +%Y-%m-%dT%H:%M:%SZ) && cat >> log.txt <<EOF
+      ## [$TS] Vendor-agnostic LLM layer and LangGraph fit…)
+  ⎿  2
+  ⎿  Updated log.txt (+19 -0)
+      119  worktree=main
+      120  parent_agent=none
+      121  
+      122 +## [2026-10-24T15:18:53Z] Vendor-agnostic LLM layer and LangGr
+          +aph fit                                                       
+      123 +                                                              
+      124 +User Prompt (verbatim, secrets redacted):                     
+      125 +there is another aspect I did not talk about, I prefer to have
+          + a system that is vendor agnostic, I think this fits langgraph
+          + better, right ?                                              
+      126 +                                                              
+      127 +Agent Response Summary:                                       
+      128 +Clarified that vendor neutrality comes from LangChain's chat-m
+          +odel layer (init_chat_model, with_structured_output, standardi
+          +zed usage_metadata), not from LangGraph itself, though the two
+          + pair naturally. Noted alternatives (LiteLLM, or a small in-ho
+          +use adapter interface) and trade-offs (lose provider-specific 
+          +Batch API discounts, structured-output quality varies by provi
+          +der). Concluded the requirement tips the balance toward LangGr
+          +aph + LangChain models, with provider:model chosen by env var 
+          +and each provider validated on the 32 samples.                
+      129 +                                                              
+      130 +Actions:                                                      
+      131 +* Appended turn entry to log.txt                              
+      132 +                                                              
+      133 +Context:                                                      
+      134 +tool=Claude Code                                              
+      135 +model=claude-opus-5-5                                         
+      136 +branch=main                                                   
+      137 +repo_root=/home/moaz-dev/dev/projects/hackerrank-orchestrate-o
+          +ctober26                                                      
+      138 +worktree=main                                                 
+      139 +parent_agent=none                                             
+      140 +                                                              
+
+● Partly. Being vendor agnostic is a good requirement, and it does tip the
+  balance toward your stack. But one distinction matters for how you'll explain
+  the design in the interview.
+
+  Being vendor agnostic comes from LangChain, not LangGraph
+
+  LangGraph only runs the graph. A node can call any SDK, or no model at all, so
+  the graph itself is neutral either way. The ability to swap providers comes
+  from LangChain's chat-model layer (langchain-core), which pairs naturally with
+  LangGraph:
+
+  from langchain.chat_models import init_chat_model
+
+  llm = init_chat_model(os.environ["LLM_MODEL"])   # e.g.
+  "anthropic:claude-opus-5-5", "openai:...", "google_genai:..."
+  classifier = llm.with_structured_output(RequestIntent)   # pydantic schema,
+  same code for every provider
+
+  Changing the provider is then just changing an environment variable. This also
+  fixes two concerns I raised earlier:
+  - Token usage: every response carries a standard usage_metadata field (input
+    and output tokens) for every provider, so usage_report.md is still easy to
+    generate.
+  - Images: LangChain has a standard image content block, so the screenshot
+    extraction is provider-neutral too.
+
+  Other ways to stay vendor agnostic
+
+  - LiteLLM: one completion() call for 100+ providers. Lighter, but it doesn't
+    integrate with LangGraph.
+  - Your own adapter: a ~40-line LLMClient interface with one class per
+    provider. Fewest dependencies, but you maintain it.
+
+  With LangGraph already in the picture, LangChain's model layer is the natural
+  choice.
+
+  Trade-offs
+
+  - No provider-specific batch discounts: the Batch API's 50% saving is lost.
+    That doesn't matter here: the total bill is a few dollars, and caching makes
+    reruns free.
+  - Structured output quality varies by provider. If you claim the system is
+    vendor agnostic, run the 32 samples on at least two providers and record the
+    results in evaluation_report.md. That turns the claim into evidence.
+  - Cache keys must include the model name, so switching providers doesn't serve
+    stale answers.
+  - Pin your versions. LangChain packages change quickly, and a clean run from
+    the README has to work.
+
+  Updated recommendation
+
+  Use LangGraph + LangChain chat models:
+  - Ingestion and batch classification run outside the graph.
+  - The per-case graph uses deterministic nodes.
+  - The provider and model are chosen through LLM_MODEL, with API keys from
+    .env.
+  - Every LLM call goes through one small wrapper that adds caching and usage
+    logging.
+
+  With your requirements stated (vendor agnostic, a clear architecture story),
+  this is the better fit than my plain-Python version.
+
+  Next step: profile the evidence formats and design the observations schema,
+  since every node after ingestion reads from it.
+
+❯ <ide_opened_file>The user opened the file /home/moaz-dev/dev/projects/hackerr
+  ank-orchestrate-october26/dataset/deletion_rules.csv in the IDE. This may or
+  may not be related to the current task.</ide_opened_file>
+
+❯ what is the hard part about this challenge ? it looks somewhat easy for me
+
+  Searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+● Bash(cd /home/moaz-dev/dev/projects/hackerrank-orchestrate-october26 &&
+      TS=$(date -u +%Y-%m-%dT%H:%M:%SZ) && cat >> log.txt <<EOF
+      ## [$TS] Explain what makes the cha…)
+  ⎿  2
+  ⎿  Updated log.txt (+20 -0)
+      138  worktree=main
+      139  parent_agent=none
+      140  
+      141 +## [2026-10-24T15:23:17Z] Explain what makes the challenge har
+          +d                                                             
+      142 +                                                              
+      143 +User Prompt (verbatim, secrets redacted):                     
+      144 +what is the hard part about this challenge ? it looks somewhat
+          + easy for me                                                  
+      145 +                                                              
+      146 +Agent Response Summary:                                       
+      147 +Probed the data to ground the answer: 100 of 518 evaluation re
+          +quests use a historical email vs 3 of 32 samples (distribution
+          + shift); email_hash is sha256 of the raw email; evidence links
+          + to users by email, user_id, hash or catalog LINK_RESOURCE_IDE
+          +NTITY events; case_11 shows the canonical answer cites the han
+          +dover file captured exactly at audit_at rather than the matchi
+          +ng activity row. Explained the hard parts: identity linkage ac
+          +ross formats, point-in-time reconstruction with replicas and r
+          +ecreation by sync/restore, claims vs evidence, rule conditions
+          + that need judgment, exact output matching (which records to v
+          +erify, which evidence to cite, ordering), and precise extracti
+          +on from images/PDFs.                                          
+      148 +                                                              
+      149 +Actions:                                                      
+      150 +* Ran Python/grep probes over dataset/ identities, audit log, 
+          +requests, evidence manifest, sample outputs, and case_11 resou
+          +rces                                                          
+      151 +* Appended turn entry to log.txt                              
+      152 +                                                              
+      153 +Context:                                                      
+      154 +tool=Claude Code                                              
+      155 +model=claude-opus-5-5                                         
+      156 +branch=main                                                   
+      157 +repo_root=/home/moaz-dev/dev/projects/hackerrank-orchestrate-o
+          +ctober26                                                      
+      158 +worktree=main                                                 
+      159 +parent_agent=none                                             
+      160 +                                                              
+
+● The idea is simple. The hard part is being exact. Every step is graded field
+  by field, so getting a case "roughly right" still scores poorly. Here's what I
+  found when I probed the data.
+
+  1. The samples are easier than the real set
+
+  - Historical emails: only 3 of 32 sample requests use an old email address,
+    but 100 of 518 evaluation requests do. Something that passes the samples
+    using current emails alone will fail on about a fifth of the real set.
+  - Sample case_11 is the friendly kind. One handover file, captured at exactly
+    audit_at, lists every resource with the user's email:
+  integration_service | data_flow_9522 | DATA_FLOW         | ACTIVE   |
+  novak.tomasz@icloud.com
+  security_service    | audit_record_9394 | SECURITY_AUDIT_LOG | FOUND | user_32
+    Other cases spread the evidence across SQL replicas, screenshots and logs,
+    with no single summary file.
+
+  2. Linking evidence to a person
+
+  Nothing in evidence_files.csv says which case a file belongs to. A record can
+  point to the user in several ways:
+  - a current or past email, sometimes in different capitalisation
+    (CHOI.JIHOON94@GMAIL.COM);
+  - the user_id (as in the audit record above);
+  - a phone number, current or past;
+  - an email_hash: I confirmed it's the SHA-256 of the raw email, so you must
+    hash every past email too;
+  - a resource ID connected through LINK_RESOURCE_IDENTITY events in the
+    activity log.
+
+  On top of that, decoy records for other people sit in the same files. Miss a
+  link and a finding disappears; make a wrong one and you report someone else's
+  data.
+
+  3. Rebuilding the state at a point in time
+
+  - The same resource shows up in many sources at different times. You need the
+    latest state at or before audit_at, and the boundary is inclusive: case_11
+    cites a file captured at exactly audit_at. Evidence captured after audit_at
+    must be ignored even though it's in the dataset.
+  - Deleted data can come back. The activity log contains "Active connector
+    repopulated downstream resource X" 31 times, plus one restore job that
+    brought data back. A record deleted on Monday can be present again on
+    Tuesday.
+  - Replicas can disagree. The primary database may show a record deleted while
+    a failover or regional replica still has it. Case_05 is reported COMPLETE,
+    but a failover replica snapshot proves the account still exists.
+
+  4. Claims vs. evidence
+
+  reported_status is wrong in both directions, and reported_result=SUCCESS in
+  the activity log is only a claim too. You decide what counts as proof and
+  which source wins when sources conflict.
+
+  5. Rule conditions need judgment
+
+  Several rules depend on a condition, so the rules file isn't a simple lookup
+  table:
+  - Support messages are redacted (not deleted) only if the conversation
+    contains context that must be kept.
+  - Support attachments are deleted only if they belong solely to the subject.
+  - Legal-hold records are kept only if the hold is still active, which probably
+    needs the legal retention register PDF.
+  - Security audit logs are kept only within the retention period.
+  - Backups are kept, but restores must be blocked.
+  - Tombstones keep the user_id but lose the name, email, phone and hash.
+
+  Deleting too much is as wrong as deleting too little. Records that must be
+  retained get VERIFY_RECORD_PRESENT, not deletion.
+
+  6. Matching the expected answer exactly
+
+  - What goes into verification: in case_11, the expected answer verifies the
+    account and the audit record even though neither had a finding. Verification
+    covers the whole required end state.
+  - Which evidence to cite: in case_11, activity_3817 also shows the data flow
+    as enabled, but the expected answer cites the handover file evidence_03.
+    When several sources prove the same fact, you have to learn from the samples
+    which one to cite.
+  - Ordering: phase, then operation order, then system_id, then resource_id. One
+    missing or extra step shifts every later step number and hurts sequence
+    accuracy.
+
+  7. Reading screenshots and PDFs exactly
+
+  Extracting from screenshots and PDFs has to get IDs character-perfect. Reading
+  analytics_2034 as analytics_2084 silently breaks a finding.
+
+  Where the effort should go
+
+  The graph, the SQLite store and the LLM classifier are about 20% of the work.
+  The other 80% is identity linking, point-in-time state reconstruction, the
+  edge cases in the rules, and the citation conventions. That's why I keep
+  pushing the observations schema and the per-format parsers as the first thing
+  to build.
+❯ <ide_opened_file>The user opened the file /home/moaz-dev/dev/projects/hackerr
+  ank-orchestrate-october26/dataset/sample_deletion_requests.csv in the IDE.
+  This may or may not be related to the current task.</ide_opened_file>
+
+❯ can you walk me throuhg step by step the process of processing the frist case
+  in the sample deletion file
+
+  Searched for 1 pattern, ran 4 shell commands (ctrl+o to expand)
+
+● Still tracing case_01. Checking the account-history PDF and a screenshot to
+  make sure no other evidence mentions this user.
+
+  Read 2 files (ctrl+o to expand)
+
+● Bash(cd /home/moaz-dev/dev/projects/hackerrank-orchestrate-october26 &&
+      TS=$(date -u +%Y-%m-%dT%H:%M:%SZ) && cat >> log.txt <<EOF
+      ## [$TS] Walk through sample case_0…)
+  ⎿  2
+  ⎿  Updated log.txt (+21 -0)
+      158  worktree=main
+      159  parent_agent=none
+      160  
+      161 +## [2026-10-24T15:35:50Z] Walk through sample case_01 end to e
+          +nd                                                            
+      162 +                                                              
+      163 +User Prompt (verbatim, secrets redacted):                     
+      164 +can you walk me throuhg step by step the process of processing
+          + the frist case in the sample deletion file                   
+      165 +                                                              
+      166 +Agent Response Summary:                                       
+      167 +Traced case_01 through the real data: request authorizes delet
+          +ion; email resolves to user_01 with no audit-log history; no e
+          +vidence file mentions the user's email, phone, hash or user_id
+          +; the only resource link is activity_3342 (DELETE_RECORD accou
+          +nt_001, a claim) logged 17s before reported_at; evidence_03/04
+          + are excluded as captured after audit_at; evidence_54 (failove
+          +r replica SQL snapshot, 2026-09-02T23:00Z) has no account_001 
+          +row in primary or replica tables, so absence is proven and the
+          + case is COMPLETE with one VERIFY_RECORD_ABSENT citing evidenc
+          +e_54. Flagged that the account_001 link relies on timestamp co
+          +rrelation and must be validated across other samples, and note
+          +d the Karim El-Masri near-miss decoy and account_005 replica d
+          +rift (case_05).                                               
+      168 +                                                              
+      169 +Actions:                                                      
+      170 +* Read sample request/output for case_01, user_identities, use
+          +r_audit_log, system_activity, evidence_files                  
+      171 +* Read evidence_54 SQL snapshot, evidence_18 PDF and evidence_
+          +42 PNG (both unrelated users)                                 
+      172 +* Appended turn entry to log.txt                              
+      173 +                                                              
+      174 +Context:                                                      
+      175 +tool=Claude Code                                              
+      176 +model=claude-opus-5-5                                         
+      177 +branch=main                                                   
+      178 +repo_root=/home/moaz-dev/dev/projects/hackerrank-orchestrate-o
+          +ctober26                                                      
+      179 +worktree=main                                                 
+      180 +parent_agent=none                                             
+      181 +                                                              
+
+● Case_01 ends up COMPLETE with a single verification step citing evidence_54.
+  Getting there takes one step the challenge never states outright: proving the
+  record is gone from the fact that it's missing in a snapshot. Here is the
+  trace against the real data.
+
+  The input
+
+  case_id:         case_01
+  email:           amina.elmasri@gmail.com
+  requested_at:    2026-08-18T09:14:00Z
+  reported_status: COMPLETE              ← a claim, not proof
+  reported_at:     2026-08-20T16:42:00Z
+  audit_at:        2026-09-03T11:30:00Z  ← nothing captured after this counts
+  request_text:    "Hi, I haven't used this account in years and would like it
+  closed.
+                    Please remove the profile and the personal details attached
+  to it."
+
+  Step 1: Does the request authorize deletion?
+
+  "Closed" plus "remove the profile and the personal details" is a clear
+  deletion request. Yes, so continue. If it had only asked for a copy of the
+  data or a correction, the output would be NOT_APPLICABLE, [] and we'd stop
+  here.
+
+  Step 2: Who is the subject?
+
+  user_identities.csv:
+  user_01, Amina El-Masri, amina.elmasri@gmail.com, +971 50 482 7316,
+  d4e1f59a…8c93
+  user_audit_log.csv has no rows for user_01, so there are no past emails or
+  phones.
+
+  The identifiers to search for are: user_01, amina.elmasri@gmail.com, +971 50
+  482 7316, and hash d4e1f59a….
+
+  Step 3: Find the subject's records
+
+  - Evidence files: I searched all text files for those four identifiers and
+    found nothing. I also opened the account-history PDF and the deleted-account
+    screenshot; they belong to user_18 and user_17.
+  - Activity log: one relevant row:
+  activity_3342  2026-08-20T16:41:43Z  DELETE_RECORD  deletion_worker →
+  account_service
+                 account_001  SUCCESS  "Deletion worker reported the requested
+  operation as completed."
+
+  This tells us two things:
+  - The subject's resource is account_001 in account_service.
+  - SUCCESS is only a claim. It doesn't prove the record is gone.
+
+  ⚠️ The link is weak. That activity row doesn't contain the email or user_id.
+  The only reason to tie it to this case is the timing: it was logged 17 seconds
+  before reported_at. There are 12 other account deletions in the same window.
+  Before building the linking logic, we need to check across the other samples
+  how resources are meant to be connected to a case. This is the first real
+  design question.
+
+  Step 4: What state is account_001 in at audit_at?
+
+  Find evidence about account_service captured at or before audit_at:
+
+  ┌──────────────────────────────┬──────────────────┬───────────────────────┐
+  │           Evidence           │     Captured     │        Usable?        │
+  ├──────────────────────────────┼──────────────────┼───────────────────────┤
+  │ evidence_03 handover TXT     │ 2026-10-01       │ ❌ after audit_at     │
+  ├──────────────────────────────┼──────────────────┼───────────────────────┤
+  │ evidence_04 admin console    │ 2026-09-26       │ ❌ after audit_at     │
+  │ PNG                          │                  │                       │
+  ├──────────────────────────────┼──────────────────┼───────────────────────┤
+  │ evidence_54 failover replica │ 2026-09-02T23:00 │ ✅ latest before      │
+  │  SQL                         │                  │ audit_at              │
+  └──────────────────────────────┴──────────────────┴───────────────────────┘
+
+  Inside evidence_54 there are two tables:
+  customer_profiles_primary:          account_8741, account_9116, account_7204
+  customer_profiles_failover_replica: account_005, account_8741, account_9116,
+  account_7204
+  account_001 is in neither table, so the record is absent from both the primary
+  and the replica. The deletion claim checks out.
+
+  Two things in this file are worth noticing:
+  - A near-miss decoy: Karim El-Masri, karim.elmasri@gmail.com, +971 50 731
+    6284. Same surname, same country code, different person. Fuzzy name matching
+    would wrongly flag this as her data.
+  - account_005 is in the replica but not the primary. That's replication drift,
+    and it's exactly why case_05 is INCOMPLETE even though it was reported
+    COMPLETE.
+
+  Step 5: Apply the policy
+
+  account_001 is a USER_PROFILE, and rule_01 says USER_PROFILE → DELETE
+  (always). The required state is ABSENT, and the actual state is ABSENT, so
+  it's compliant.
+
+  No other records, no active data flows, no backups. Everything is compliant,
+  so the status is COMPLETE.
+
+  Step 6: Build the steps
+
+  COMPLETE means verification steps only, each citing the evidence that proves
+  the current state:
+  [{"step_no": 1, "phase": "VERIFICATION", "system_id": "account_service",
+    "resource_id": "account_001", "operation": "VERIFY_RECORD_ABSENT",
+    "state": "ABSENT", "evidence_id": "evidence_54"}]
+  This matches sample_output.csv exactly.
+
+  What this case teaches about the design
+
+  1. Absence has to be proven, not assumed. "Not found anywhere" isn't proof.
+     The proof is "missing from the newest relevant snapshot captured before
+     audit_at", and that snapshot is what gets cited. The system needs to know
+     which snapshot covers which system.
+  2. The activity log is how we find resources, not how we prove their state.
+     activity_3342 gave us account_001, but the evidence is evidence_54.
+  3. Every evidence file needs its capture time so we can drop anything after
+     audit_at. Two of the three account files were excluded here.
+  4. Match identifiers exactly, never fuzzily. The Karim El-Masri decoy proves
+     it.
+  5. Each PDF and screenshot covers a single user, so extracting them once into
+     the database at ingestion and querying them per case is the right approach.
+
+  Next, I'd trace case_05 (replica drift, reported COMPLETE but actually
+  INCOMPLETE) and one historical-email case. Between them they cover the open
+  question about linking resources to a case and the remediation side of the
+  output.
+
+❯ /usage
+  ⎿  You are currently using your subscription to power your Claude Code usage
+
+     Current session: 2% used · resets Oct 24, 9:39pm (Asia/Riyadh)
+     Current week (all models): 0% used · resets Oct 31, 8:59am (Asia/Riyadh)
+     Current week (Fable): 0% used · resets Oct 31, 9am (Asia/Riyadh)
+
+     What's contributing to your limits usage?
+     Approximate · sessions on this machine only · shares overlap
+
+     Last 24h · 71 requests · 2 sessions
+       21%  Trim ~/dev/projects/hackerrank-orchestrate-october26/AGENTS.md · 6k tokens per request
+       Top skills: /claude-api 9%
+
+     Last 7d · 231 requests · 4 sessions
+       77%  Give simple subagents a cheaper model
+       62%  Start fresh when you switch tasks · run /clear
+       Top skills: /claude-api 2%
+       Top subagents: general-purpose 5%
+
+❯ /insights
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ /context
+  ⎿  Context Usage
+
+     Model: claude-opus-5-5
+     Tokens: 152.7k / 1m (15%)
+
+     Estimated usage by category
+
+     ┌─────────────────────────┬────────┬────────────┐
+     │        Category         │ Tokens │ Percentage │
+     ├─────────────────────────┼────────┼────────────┤
+     │ System prompt           │ 3.7k   │ 0.4%       │
+     ├─────────────────────────┼────────┼────────────┤
+     │ System tools            │ 17.3k  │ 1.7%       │
+     ├─────────────────────────┼────────┼────────────┤
+     │ MCP server instructions │ 717    │ 0.1%       │
+     ├─────────────────────────┼────────┼────────────┤
+     │ MCP tools (deferred)    │ 12.2k  │ 1.2%       │
+     ├─────────────────────────┼────────┼────────────┤
+     │ System tools (deferred) │ 22.1k  │ 2.2%       │
+     ├─────────────────────────┼────────┼────────────┤
+     │ Memory files            │ 8.3k   │ 0.8%       │
+     ├─────────────────────────┼────────┼────────────┤
+     │ Skills                  │ 6.6k   │ 0.7%       │
+     ├─────────────────────────┼────────┼────────────┤
+     │ Messages                │ 116.1k │ 11.6%      │
+     ├─────────────────────────┼────────┼────────────┤
+     │ Free space              │ 814.3k │ 81.4%      │
+     ├─────────────────────────┼────────┼────────────┤
+     │ Autocompact buffer      │ 33k    │ 3.3%       │
+     └─────────────────────────┴────────┴────────────┘
+
+     MCP Tools
+
+     ┌──────────────────────────────────────────┬────────────────────────┬─────┐
+     │                   Tool                   │         Server         │ Tok │
+     │                                          │                        │ ens │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__claude_ai_Claude_Docs__batch        │ claude_ai_Claude_Docs  │ 157 │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__claude_ai_Claude_Docs__create       │ claude_ai_Claude_Docs  │ 244 │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__claude_ai_Claude_Docs__delete       │ claude_ai_Claude_Docs  │ 328 │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__claude_ai_Claude_Docs__export       │ claude_ai_Claude_Docs  │ 310 │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__claude_ai_Claude_Docs__guide        │ claude_ai_Claude_Docs  │ 199 │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__claude_ai_Claude_Docs__query        │ claude_ai_Claude_Docs  │ 173 │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__claude_ai_Claude_Docs__read         │ claude_ai_Claude_Docs  │ 310 │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__claude_ai_Claude_Docs__update       │ claude_ai_Claude_Docs  │ 284 │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__claude-vscode__getDiagnostics       │ claude-vscode          │ 308 │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 265 │
+     │ evtools__click                           │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 164 │
+     │ evtools__close_page                      │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 255 │
+     │ evtools__drag                            │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 687 │
+     │ evtools__emulate                         │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 568 │
+     │ evtools__evaluate_script                 │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 307 │
+     │ evtools__fill                            │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 464 │
+     │ evtools__fill_form                       │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 217 │
+     │ evtools__get_console_message             │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 435 │
+     │ evtools__get_network_request             │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 236 │
+     │ evtools__handle_dialog                   │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 228 │
+     │ evtools__hover                           │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 352 │
+     │ evtools__lighthouse_audit                │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 601 │
+     │ evtools__list_console_messages           │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 491 │
+     │ evtools__list_network_requests           │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 103 │
+     │ evtools__list_pages                      │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 464 │
+     │ evtools__navigate_page                   │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 392 │
+     │ evtools__new_page                        │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 323 │
+     │ evtools__performance_analyze_insight     │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 445 │
+     │ evtools__performance_start_trace         │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 247 │
+     │ evtools__performance_stop_trace          │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 310 │
+     │ evtools__press_key                       │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 202 │
+     │ evtools__resize_page                     │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 201 │
+     │ evtools__select_page                     │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 226 │
+     │ evtools__take_heapsnapshot               │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 483 │
+     │ evtools__take_screenshot                 │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 377 │
+     │ evtools__take_snapshot                   │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 222 │
+     │ evtools__type_text                       │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 336 │
+     │ evtools__upload_file                     │ -mcp_chrome-devtools   │     │
+     ├──────────────────────────────────────────┼────────────────────────┼─────┤
+     │ mcp__plugin_chrome-devtools-mcp_chrome-d │ plugin_chrome-devtools │ 262 │
+     │ evtools__wait_for                        │ -mcp_chrome-devtools   │     │
+     └──────────────────────────────────────────┴────────────────────────┴─────┘
+
+     Memory Files
+
+     ┌───────┬─────────────────────────────────────────────────────────┬──────┐
+     │ Type  │                          Path                           │ Toke │
+     │       │                                                         │  ns  │
+     ├───────┼─────────────────────────────────────────────────────────┼──────┤
+     │ Proje │ /home/moaz-dev/dev/projects/hackerrank-orchestrate-octo │ 16   │
+     │ ct    │ ber26/CLAUDE.md                                         │      │
+     ├───────┼─────────────────────────────────────────────────────────┼──────┤
+     │ Proje │ /home/moaz-dev/dev/projects/hackerrank-orchestrate-octo │ 8.3k │
+     │ ct    │ ber26/AGENTS.md                                         │      │
+     └───────┴─────────────────────────────────────────────────────────┴──────┘
+
+     Skills
+
+     ┌─────────────────────────────────────────┬──────────────────────┬───────┐
+     │                  Skill                  │        Source        │ Token │
+     │                                         │                      │   s   │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ plannotator                             │ User                 │ ~120  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ chrome-devtools-mcp:a11y-debugging      │ Plugin (chrome-devto │ ~80   │
+     │                                         │ ols-mcp)             │       │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ chrome-devtools-mcp:chrome-devtools     │ Plugin (chrome-devto │ ~110  │
+     │                                         │ ols-mcp)             │       │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ chrome-devtools-mcp:chrome-devtools-cli │ Plugin (chrome-devto │ ~60   │
+     │                                         │ ols-mcp)             │       │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ chrome-devtools-mcp:cookie-debugging    │ Plugin (chrome-devto │ ~130  │
+     │                                         │ ols-mcp)             │       │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ chrome-devtools-mcp:debug-optimize-lcp  │ Plugin (chrome-devto │ ~160  │
+     │                                         │ ols-mcp)             │       │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ chrome-devtools-mcp:memory-leak-debuggi │ Plugin (chrome-devto │ ~90   │
+     │ ng                                      │ ols-mcp)             │       │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ chrome-devtools-mcp:troubleshooting     │ Plugin (chrome-devto │ ~80   │
+     │                                         │ ols-mcp)             │       │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ dataviz                                 │ Built-in             │ ~480  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ artifact-design                         │ Built-in             │ ~70   │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ artifact-diagramming                    │ Built-in             │ ~70   │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ artifact-capabilities                   │ Built-in             │ ~250  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ update-config                           │ Built-in             │ ~240  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ keybindings-help                        │ Built-in             │ ~80   │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ code-review                             │ Built-in             │ ~330  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ simplify                                │ Built-in             │ ~60   │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ fewer-permission-prompts                │ Built-in             │ ~60   │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ loop                                    │ Built-in             │ ~120  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ schedule                                │ Built-in             │ ~130  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ claude-api                              │ Built-in             │ ~360  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ workflow-authoring                      │ Built-in             │ ~80   │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ run                                     │ Built-in             │ ~120  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ plugin-authoring                        │ Built-in             │ ~90   │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ init                                    │ Built-in             │ ~20   │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ security-review                         │ Built-in             │ ~30   │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ built-in-browser                        │ claude.ai sync       │ ~290  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ chrome-browser                          │ claude.ai sync       │ ~260  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ computer-use                            │ claude.ai sync       │ ~320  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ anthropic-skills:deep-research          │ claude.ai sync       │ ~200  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ docs                                    │ claude.ai sync       │ ~340  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ docx                                    │ claude.ai sync       │ ~320  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ google-workspace                        │ claude.ai sync       │ ~330  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ import-memory                           │ claude.ai sync       │ ~60   │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ morning                                 │ claude.ai sync       │ ~120  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ pdf                                     │ claude.ai sync       │ ~150  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ pptx                                    │ claude.ai sync       │ ~330  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ skill-creator                           │ claude.ai sync       │ ~120  │
+     ├─────────────────────────────────────────┼──────────────────────┼───────┤
+     │ xlsx                                    │ claude.ai sync       │ ~320  │
+     └─────────────────────────────────────────┴──────────────────────┴───────┘
+
+❯ do case_05
+
+  Searched for 2 patterns, ran 1 shell command (ctrl+o to expand)
+
+● Bash(cd /home/moaz-dev/dev/projects/hackerrank-orchestrate-october26 &&
+      TS=$(date -u +%Y-%m-%dT%H:%M:%SZ) && cat >> log.txt <<EOF
+      ## [$TS] Walk through sample case_0…)
+  ⎿  2
+  ⎿  Updated log.txt (+21 -0)
+      179  worktree=main
+      180  parent_agent=none
+      181  
+      182 +## [2026-10-24T16:40:26Z] Walk through sample case_05 (replica
+          + drift)                                                       
+      183 +                                                              
+      184 +User Prompt (verbatim, secrets redacted):                     
+      185 +do case_05                                                    
+      186 +                                                              
+      187 +Agent Response Summary:                                       
+      188 +Traced case_05: deletion authorized; email resolves to user_05
+          + with no audit history; activity_3482 claims account_005 delet
+          +ed (SUCCESS) and activity_3483 claims replication reached its 
+          +final checkpoint (SUCCESS), yet evidence_54 (failover replica 
+          +snapshot 2026-09-02T23:00Z, before audit_at) still holds the f
+          +ull account_005 row in the replica table while the primary tab
+          +le lacks it. Result is INCOMPLETE with REPORT_REMAINING_RECORD
+          + -> DELETE_RECORD -> VERIFY_RECORD_ABSENT, all on system_id ac
+          +count_service (replica is not a separate system, replication i
+          +s not reported as an active data flow). Corrected the case_01 
+          +heuristic: the deletion activity here is 8 minutes after repor
+          +ted_at, so timestamp proximity to reported_at is not a reliabl
+          +e linking rule.                                               
+      189 +                                                              
+      190 +Actions:                                                      
+      191 +* Read case_05 request/output, user_identities, user_audit_log
+          +, system_activity rows, evidence manifest window              
+      192 +* Grepped evidence/ for user_05 identifiers (only hit: evidenc
+          +e_54 replica row)                                             
+      193 +* Appended turn entry to log.txt                              
+      194 +                                                              
+      195 +Context:                                                      
+      196 +tool=Claude Code                                              
+      197 +model=claude-opus-5-5                                         
+      198 +branch=main                                                   
+      199 +repo_root=/home/moaz-dev/dev/projects/hackerrank-orchestrate-o
+          +ctober26                                                      
+      200 +worktree=main                                                 
+      201 +parent_agent=none                                             
+      202 +                                                              
+
+● Case_05 is reported COMPLETE but is actually INCOMPLETE. It uses the same
+  evidence file as case_01 and gets the opposite answer, because the account is
+  still in the database replica.
+
+  The input
+
+  case_id:         case_05
+  email:           leila.haddad@yahoo.com
+  requested_at:    2026-08-27T14:17:00Z
+  reported_status: COMPLETE
+  reported_at:     2026-08-28T09:03:00Z
+  audit_at:        2026-09-08T13:40:00Z
+  request_text:    "I deleted this account and received a confirmation, but the
+  same email
+                    address is still recognized. Please remove any remaining
+  copy of my profile."
+  The request text describes the bug itself: "deleted, but the email is still
+  recognized". That's the $2.4M story from the problem statement.
+
+  Step 1: Does the request authorize deletion?
+
+  "Please remove any remaining copy of my profile" is a deletion request. Yes.
+
+  Step 2: Who is the subject?
+
+  user_05, Leila Haddad, leila.haddad@yahoo.com, +212 6 48 27 15 93,
+  62667ed0…0d08
+  There's no audit-log history, so only current identifiers.
+
+  Step 3: Find the subject's records
+
+  The activity log has two claims, both SUCCESS:
+  activity_3482  2026-08-28T09:11:01Z  DELETE_RECORD  deletion_worker →
+  account_service           account_005  SUCCESS
+                 "Deletion worker reported the requested operation as
+  completed."
+  activity_3483  2026-08-28T09:11:09Z  SYNC_RECORD    account_service →
+  account_failover_replica  account_005  SUCCESS
+                 "Replication worker reported its final checkpoint."
+  On the claims alone: the primary deleted it, the change was replicated, all
+  done.
+
+  Searching the evidence files for her identifiers gives one hit, and this time
+  it's a direct match on content:
+  evidence_54 → customer_profiles_failover_replica:
+  ('account_005','user_05','Leila Haddad','leila.haddad@yahoo.com','+212 6 48 27
+  15 93','ACTIVE','2026-09-02T22:45:00Z')
+
+  Step 4: What state is account_005 in at audit_at?
+
+  evidence_54 was captured 2026-09-02T23:00, before audit_at (09-08), so it's
+  usable.
+
+  ┌────────────────────────────────────┬─────────────────────────────────────┐
+  │        Table in evidence_54        │            account_005?             │
+  ├────────────────────────────────────┼─────────────────────────────────────┤
+  │ customer_profiles_primary          │ ❌ absent, so the primary delete    │
+  │                                    │ really happened                     │
+  ├────────────────────────────────────┼─────────────────────────────────────┤
+  │                                    │ ✅ present: full name, email and    │
+  │ customer_profiles_failover_replica │ phone, ACTIVE, last updated 22:45   │
+  │                                    │ on 09-02                            │
+  └────────────────────────────────────┴─────────────────────────────────────┘
+
+  The replica row was updated five days after replication claimed its "final
+  checkpoint". So the SUCCESS on activity_3483 is false. The data is still
+  there, and that's why her email is "still recognized".
+
+  Other files in the window (search logs, analytics JSON, a security PDF,
+  screenshots) don't concern her; the expected answer has no other resources.
+  Our system still has to extract and check them to know that.
+
+  Step 5: Apply the policy
+
+  USER_PROFILE → rule_01: DELETE. Required state ABSENT, actual state PRESENT in
+  the replica, so it violates the policy. Status is INCOMPLETE.
+
+  Step 6: Build the steps
+
+  INCOMPLETE means findings, then remediation, then verification:
+
+  ┌─────┬───────────┬───────────────────┬─────────────┬──────────┬──────────┐
+  │  #  │   Phase   │     Operation     │   System    │ Resource │ Evidence │
+  ├─────┼───────────┼───────────────────┼─────────────┼──────────┼──────────┤
+  │ 1   │ FINDING   │ REPORT_REMAINING_ │ account_ser │ account_ │ evidence │
+  │     │           │ RECORD → PRESENT  │ vice        │ 005      │ _54      │
+  ├─────┼───────────┼───────────────────┼─────────────┼──────────┼──────────┤
+  │ 2   │ REMEDIATI │ DELETE_RECORD →   │ account_ser │ account_ │ ""       │
+  │     │ ON        │ ABSENT            │ vice        │ 005      │          │
+  ├─────┼───────────┼───────────────────┼─────────────┼──────────┼──────────┤
+  │ 3   │ VERIFICAT │ VERIFY_RECORD_ABS │ account_ser │ account_ │ ""       │
+  │     │ ION       │ ENT → ABSENT      │ vice        │ 005      │          │
+  └─────┴───────────┴───────────────────┴─────────────┴──────────┴──────────┘
+
+  This matches the expected output exactly.
+
+  What case_05 adds to the design
+
+  1. A replica belongs to its parent system. The finding is system_id =
+     account_service, not account_failover_replica. The resource is "present" if
+     any copy (primary, replica or failover) still has it. When we parse SQL
+     snapshots, every table maps to its parent system and the resource ID stays
+     the same.
+  2. Replication isn't reported as an active data flow here. There's no
+     REPORT_ACTIVE_DATA_FLOW for the sync. Data-flow findings seem to come from
+     connector evidence, like the "data flow X remains enabled" checks in
+     case_11, not from replication rows. We need to confirm this across more
+     samples.
+  3. The same evidence can prove opposite things. evidence_54 proves absence for
+     case_01 and presence for case_05. That supports extracting each file once
+     into the database and querying it per case.
+  4. A correction to what I said about case_01. I said the activity row was
+     linked because it came 17 seconds before reported_at. Here, the deletion
+     activity is 8 minutes after reported_at, so being close to reported_at
+     isn't a reliable rule. In case_05 the link comes from the evidence content
+     itself (the replica row carries user_05 and the email). Case_01 had no such
+     content, only the activity row. How to link a resource to a case when no
+     evidence names the user is still the main open question. Two side notes:
+     - The "reported the requested operation as completed" wording appears only
+       8 times in the log.
+     - In the samples account_00N lines up with user_0N, but that doesn't hold
+       generally (account_4248 belongs to user_32). We must not rely on it.
+
+  Next: I'd trace a historical-email case and a COMPLETE case with many
+  resources (case_26: tombstone, retained audit record, disabled flow, blocked
+  backup). That covers the parts the evaluation set leans on most and the
+  remaining rules.
+
+❯ /plannotator-last
+  ⎿  Shell command interrupted for pattern "!`plannotator annotate-last `":
+     [Command interrupted]
+
+❯ can you explain the steps applied again in a simpler more detailed way
+  because I am lost? I dont know what to search when
+
+● Bash(TS=$(date -u +%Y-%m-%dT%H:%M:%SZ) && cat >> log.txt <<EOF
+      ## [$TS] Re-explain the per-case procedure simply…)
+  ⎿  2
+  ⎿  Updated log.txt (+19 -0)
+      200  worktree=main
+      201  parent_agent=none
+      202  
+      203 +## [2026-10-24T17:05:20Z] Re-explain the per-case procedure si
+          +mply                                                          
+      204 +                                                              
+      205 +User Prompt (verbatim, secrets redacted):                     
+      206 +can you explain the steps applied again in a simpler more deta
+          +iled way because I am lost? I dont know what to search when   
+      207 +                                                              
+      208 +Agent Response Summary:                                       
+      209 +Rewrote the per-case process as a plain step-by-step recipe: f
+          +or each step, the question being answered, which file to open,
+          + what value to search for, and what comes out, using case_05 a
+          +s the running example. Emphasized that each step's output beco
+          +mes the next step's search keys (email -> user_id -> all ident
+          +ifiers -> resource_ids -> states), plus a cheat sheet mapping 
+          +questions to files. No code or data changes.                  
+      210 +                                                              
+      211 +Actions:                                                      
+      212 +* Appended turn entry to log.txt                              
+      213 +                                                              
+      214 +Context:                                                      
+      215 +tool=Claude Code                                              
+      216 +model=claude-opus-5-5                                         
+      217 +branch=main                                                   
+      218 +repo_root=/home/moaz-dev/dev/projects/hackerrank-orchestrate-o
+          +ctober26                                                      
+      219 +worktree=main                                                 
+      220 +parent_agent=none                                             
+      221 +                                                              
+
+● The key idea: each step gives you the search terms for the next step. You
+  start with only an email and keep widening:
+
+  email  →  user_id  →  all of the user's identifiers  →  their records  →  each
+  record's state  →  answer
+
+  Below are the 6 steps. Each one says what question it answers, which file to
+  open, what to search for, and what you get, using case_05 as the example.
+
+  ---
+
+  Step 1: Did the person ask for deletion?
+
+  - Question: Is this a deletion request at all?
+  - Open: the request_text column of the case row.
+  - Look for: wording like delete, erase, remove, or close my account. Wording
+    like "send me a copy", "fix my name" or "stop emails" is not deletion.
+  - You get: yes or no. If no, write NOT_APPLICABLE, [] and stop.
+
+  ▎ case_05: "Please remove any remaining copy of my profile" → yes, continue.
+
+  ---
+
+  Step 2: Who is this person?
+
+  - Question: Which user does this email belong to?
+  - Open: user_identities.csv first.
+  - Search for: the request email in the email column.
+    - Found → take that row's user_id.
+    - Not found → open user_audit_log.csv and search for the email in old_value.
+      That means it's an old email. Take the user_id from that row.
+  - You get: one user_id.
+
+  ▎ case_05: search leila.haddad@yahoo.com in user_identities.csv → found →
+  ▎ user_05.
+
+  ---
+
+  Step 3: Collect every identifier this person has ever had
+
+  - Question: Which values could appear in old records about this person?
+  - Open: both identity files again.
+  - Search for: the user_id from Step 2.
+    - In user_identities.csv, take the current email, phone and email hash.
+    - In user_audit_log.csv, take every old_value and new_value for emails,
+      phones and hashes.
+  - You get: a list of search terms.
+
+  ▎ case_05: user_05 has no rows in the audit log, so the list is:
+  ▎ user_05, leila.haddad@yahoo.com, +212 6 48 27 15 93, 62667ed0…0d08
+
+  ---
+
+  Step 4: Find every record that belongs to this person
+
+  - Question: Where does this person's data exist?
+  - Open: all evidence files (SQL, JSON, logs, TXT, plus the text extracted from
+    PDFs and images).
+  - Search for: every value from the Step 3 list.
+  - You get: a list of matching records, each with a system_id, a resource_id
+    and a data category.
+  - Then open: system_activity.csv, and search it for each resource_id you just
+    found. This shows what was done to each record (deleted, synced, restored,
+    and so on).
+
+  ▎ case_05:
+  ▎ - searching her email in the evidence finds a row in evidence_54:
+  ▎ account_005 | user_05 | Leila Haddad | leila.haddad@yahoo.com …
+  ▎ - searching account_005 in the activity log finds:
+  ▎   - activity_3482: "DELETE account_005 → SUCCESS"
+  ▎   - activity_3483: "SYNC to replica → SUCCESS"
+  ▎
+  ▎ Resource list: account_005 in account_service.
+
+  ---
+
+  Step 5: What state was each record in at audit_at?
+
+  - Question: Is the data really gone, or is that only claimed?
+  - For each resource, collect every mention of it:
+    a. Drop anything captured or timed after audit_at. Capture times are in
+       evidence_files.csv.
+    b. From what's left, take the latest evidence file. That's the real state.
+    c. Activity-log rows are claims. They tell you where to look, but they don't
+       prove anything.
+  - You get: each resource's real state: present, absent, still identifiable,
+    flow active, and so on.
+
+  ▎ case_05:
+  ▎ - audit_at = 2026-09-08. evidence_54 was captured 2026-09-02, so it counts.
+  ▎ - In evidence_54, the primary table doesn't have account_005, but the
+  ▎ failover_replica table does.
+  ▎ - So account_005 is still PRESENT. The two SUCCESS claims were wrong.
+
+  ---
+
+  Step 6: Compare with the rules and write the answer
+
+  - Question: For each record, what should its state be, and is it?
+  - Open: deletion_rules.csv.
+  - Search for: the record's data category, which gives its required action:
+
+  ┌─────────────────┬────────────────────────────────────────────┐
+  │ Required action │               Should end up                │
+  ├─────────────────┼────────────────────────────────────────────┤
+  │ DELETE          │ ABSENT                                     │
+  ├─────────────────┼────────────────────────────────────────────┤
+  │ REDACT          │ identifiers removed, record kept           │
+  ├─────────────────┼────────────────────────────────────────────┤
+  │ ANONYMIZE       │ can't be linked to the person, record kept │
+  ├─────────────────┼────────────────────────────────────────────┤
+  │ RETAIN          │ still PRESENT; don't touch it              │
+  └─────────────────┴────────────────────────────────────────────┘
+
+  - Decide:
+    - Every record is in its required state and no sync or restore is still
+      running → COMPLETE. Write only VERIFY steps, each citing the evidence.
+    - Anything is wrong → INCOMPLETE. Write the steps in this order:
+      - a FINDING per problem, citing the evidence;
+      - a REMEDIATION per fix, with evidence_id empty;
+      - a VERIFY per record, with evidence_id empty.
+
+  ▎ case_05: account_005 is a USER_PROFILE, and rule_01 says DELETE, so it
+  ▎ should be ABSENT. It's PRESENT, so the status is INCOMPLETE:
+  ▎ 1. FINDING       REPORT_REMAINING_RECORD  account_005   evidence_54
+  ▎ 2. REMEDIATION   DELETE_RECORD            account_005   ""
+  ▎ 3. VERIFICATION  VERIFY_RECORD_ABSENT     account_005   ""
+
+  ---
+
+  Cheat sheet: which file answers which question
+
+  ┌──────────────────────┬──────────────────────────────────┬───────────────┐
+  │   I need to know…    │               Open               │   Search by   │
+  ├──────────────────────┼──────────────────────────────────┼───────────────┤
+  │ Is it a deletion     │ deletion_requests.csv →          │ read the text │
+  │ request?             │ request_text                     │               │
+  ├──────────────────────┼──────────────────────────────────┼───────────────┤
+  │ Who is the person?   │ user_identities.csv, then        │ the request   │
+  │                      │ user_audit_log.csv               │ email         │
+  ├──────────────────────┼──────────────────────────────────┼───────────────┤
+  │ All their            │ both identity files              │ user_id       │
+  │ identifiers          │                                  │               │
+  ├──────────────────────┼──────────────────────────────────┼───────────────┤
+  │ Where their data is  │ evidence/ files                  │ every         │
+  │                      │                                  │ identifier    │
+  ├──────────────────────┼──────────────────────────────────┼───────────────┤
+  │ What was done to     │ system_activity.csv              │ resource_id   │
+  │ each record          │                                  │               │
+  ├──────────────────────┼──────────────────────────────────┼───────────────┤
+  │ When a file was      │ evidence_files.csv               │ file_id       │
+  │ captured             │                                  │               │
+  ├──────────────────────┼──────────────────────────────────┼───────────────┤
+  │ What should happen   │ deletion_rules.csv               │ data category │
+  │ to a record          │                                  │               │
+  └──────────────────────┴──────────────────────────────────┴───────────────┘
+
+  How this maps to the code: each step becomes one function, or one LangGraph
+  node. Steps 2–5 are database lookups on the tables we fill during ingestion.
+  Step 1 is the only one that needs an LLM.
+
+❯ so the hardest stip should be searching all these evidence files in the 4th
+  step, do you have to search every single file in it?
+
+● Bash(TS=$(date -u +%Y-%m-%dT%H:%M:%SZ) && cat >> log.txt <<EOF
+      ## [$TS] Does step 4 require searching every evidence file per case?…)
+  ⎿  2
+  ⎿  Updated log.txt (+19 -0)
+      219  worktree=main
+      220  parent_agent=none
+      221  
+      222 +## [2026-10-24T17:45:46Z] Does step 4 require searching every 
+          +evidence file per case?                                       
+      223 +                                                              
+      224 +User Prompt (verbatim, secrets redacted):                     
+      225 +so the hardest stip should be searching all these evidence fil
+          +es in the 4th step, do you have to search every single file in
+          + it?                                                          
+      226 +                                                              
+      227 +Agent Response Summary:                                       
+      228 +Explained that files are not searched per case: every file is 
+          +read once at ingestion and normalized into an observations tab
+          +le indexed by identifier and resource_id, so per-case step 4 b
+          +ecomes a SQL lookup. The effort moves to ingestion (one parser
+          + per format, identifier normalization, vision/PDF extraction).
+          + Highlighted that identifier search cannot find absence eviden
+          +ce (case_01), so ingestion must also record a coverage table o
+          +f which snapshot covers which system/table at what time. Noted
+          + step 5 (state reconstruction) is arguably harder than step 4.
+      229 +                                                              
+      230 +Actions:                                                      
+      231 +* Appended turn entry to log.txt                              
+      232 +                                                              
+      233 +Context:                                                      
+      234 +tool=Claude Code                                              
+      235 +model=claude-opus-5-5                                         
+      236 +branch=main                                                   
+      237 +repo_root=/home/moaz-dev/dev/projects/hackerrank-orchestrate-o
+          +ctober26                                                      
+      238 +worktree=main                                                 
+      239 +parent_agent=none                                             
+      240 +                                                              
+
+● No, not per case. Every file gets read once, at the start, and turned into
+  rows in a database. After that, step 4 for any case is a quick lookup. The
+  effort is still real, but it moves from per-case searching into the one-time
+  reading step.
+
+  Read once, look up many times
+
+  Without ingestion: for each of the 518 cases, open up to 94 files and search
+  them. That's about 48,000 file reads, with the same images and PDFs
+  interpreted again and again.
+
+  With ingestion:
+  1. Once: open each of the 94 files, pull out every record, and save it as a
+     row in one SQLite table.
+  2. Per case: run one query, find rows where identifier is one of [user_05,
+     leila.haddad@yahoo.com, +212…, 62667ed0…].
+
+  The whole evidence folder is only 3.1 MB, so the table is small and the query
+  is instant.
+
+  What a row looks like
+
+  Every file format ends up in the same shape:
+
+  ┌───────┬─────────┬──────────┬────────┬──────────┬───────┬─────────────┐
+  │ evide │ capture │ system_i │ resour │          │       │             │
+  │ nce_i │  d_at   │    d     │ ce_id  │ category │ state │ identifier  │
+  │   d   │         │          │        │          │       │             │
+  ├───────┼─────────┼──────────┼────────┼──────────┼───────┼─────────────┤
+  │ evide │ 2026-09 │ account_ │ accoun │ USER_PRO │ PRESE │ leila.hadda │
+  │ nce_5 │ -02T23: │ service  │ t_005  │ FILE     │ NT    │ d@yahoo.com │
+  │ 4     │ 00      │          │        │          │       │             │
+  ├───────┼─────────┼──────────┼────────┼──────────┼───────┼─────────────┤
+  │ evide │ 2026-09 │ account_ │ accoun │ USER_PRO │ PRESE │             │
+  │ nce_5 │ -02T23: │ service  │ t_005  │ FILE     │ NT    │ user_05     │
+  │ 4     │ 00      │          │        │          │       │             │
+  ├───────┼─────────┼──────────┼────────┼──────────┼───────┼─────────────┤
+  │ evide │ 2026-10 │ analytic │ analyt │ ANALYTIC │ IDENT │ novak.tomas │
+  │ nce_0 │ -01T12: │ s_platfo │ ics_20 │ S_PROFIL │ IFIAB │ z@icloud.co │
+  │ 3     │ 00      │ rm       │ 34     │ E        │ LE    │ m           │
+  └───────┴─────────┴──────────┴────────┴──────────┴───────┴─────────────┘
+
+  One record can produce several rows, one per identifier, so a search by email,
+  phone, hash or user_id finds it either way.
+
+  Where the work actually goes
+
+  You write one reader per file format, not one per file:
+
+  ┌────────┬───────┬────────────────────────────────────────────────────┐
+  │ Format │ Files │                   How to read it                   │
+  ├────────┼───────┼────────────────────────────────────────────────────┤
+  │ SQL    │ 24    │ Run it in SQLite, then read the tables             │
+  ├────────┼───────┼────────────────────────────────────────────────────┤
+  │ JSON   │ 28    │ json.load and walk the structure                   │
+  ├────────┼───────┼────────────────────────────────────────────────────┤
+  │ Logs   │ 26    │ Regex per line pattern                             │
+  ├────────┼───────┼────────────────────────────────────────────────────┤
+  │ TXT    │ 1     │ Regex (the handover lines are pipe-separated)      │
+  ├────────┼───────┼────────────────────────────────────────────────────┤
+  │ PDF    │ 4     │ Text extraction; LLM only if there's no text layer │
+  ├────────┼───────┼────────────────────────────────────────────────────┤
+  │ PNG    │ 11    │ Vision LLM, once, results cached                   │
+  └────────┴───────┴────────────────────────────────────────────────────┘
+
+  The readers also have to normalize values so matches don't fail on formatting:
+  - emails in lowercase (CHOI.JIHOON94@GMAIL.COM → lowercase);
+  - phones with the spaces stripped;
+  - hashes in lowercase.
+
+  The catch: you can't search for something that isn't there
+
+  Case_01 shows the problem. Searching for Amina's identifiers returns nothing,
+  because her record was deleted. The answer still has to cite evidence_54 as
+  proof that it's absent.
+
+  So ingestion also needs a second small table recording which file covers which
+  system, and when:
+
+  ┌───────────┬───────────────┬──────────────┬──────────────────────────────┐
+  │ evidence_ │  captured_at  │  system_id   │            tables            │
+  │    id     │               │              │                              │
+  ├───────────┼───────────────┼──────────────┼──────────────────────────────┤
+  │ evidence_ │ 2026-09-02T23 │ account_serv │ customer_profiles_primary,   │
+  │ 54        │ :00           │ ice          │ customer_profiles_failover_r │
+  │           │               │              │ eplica                       │
+  └───────────┴───────────────┴──────────────┴──────────────────────────────┘
+
+  Then "is account_001 absent at audit_at?" becomes: find the latest snapshot
+  covering account_service before audit_at, and check the resource isn't in it.
+  That's how case_01 gets VERIFY_RECORD_ABSENT … evidence_54.
+
+  So which step is hardest?
+
+  - Ingestion (before step 4) is the most work: six formats, normalization,
+    images.
+  - Step 5 is the hardest to get right. Deciding which mention wins (latest
+    before audit_at, a replica vs. the primary, a claim vs. proof, data
+    recreated after deletion) is where most mistakes will happen.
+  - Step 4 itself turns into a single query once ingestion is done.
+
+  That's why the first thing to build is the ingestion layer: these two tables
+  plus one reader per format. Want me to start by profiling the structure of
+  each format (what the JSON files, logs and SQL tables look like) so we can
+  finalize the table design?
+
+❯ <ide_opened_file>The user opened the file /home/moaz-dev/dev/projects/hackerr
+  ank-orchestrate-october26/dataset/deletion_rules.csv in the IDE. This may or
+  may not be related to the current task.</ide_opened_file>
+
+❯ now it is better, but I still dont understand what is the audit_at time and
+  why we care about it? and what is the "deciding which mention wins" in step
+  5, please expand
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Bash(cd /home/moaz-dev/dev/projects/hackerrank-orchestrate-october26 &&
+      TS=$(date -u +%Y-%m-%dT%H:%M:%SZ) && cat >> log.txt <<EOF
+      ## [$TS] Explain audit_at and how c…)
+  ⎿  2
+  ⎿  Updated log.txt (+20 -0)
+      238  worktree=main
+      239  parent_agent=none
+      240  
+      241 +## [2026-10-24T17:57:16Z] Explain audit_at and how conflicting
+          + mentions are resolved                                        
+      242 +                                                              
+      243 +User Prompt (verbatim, secrets redacted):                     
+      244 +now it is better, but I still dont understand what is the audi
+          +t_at time and why we care about it? and what is the "deciding 
+          +which mention wins" in step 5, please expand                  
+      245 +                                                              
+      246 +Agent Response Summary:                                       
+      247 +Explained audit_at as the moment the audit snapshot is taken: 
+          +the dataset spans the whole year, so each case must be judged 
+          +only on what existed at or before its audit_at, and evidence a
+          +fter it can neither change the verdict nor be cited. Used samp
+          +le case_24 (account_5334) as a real timeline: DELETE and SYNC 
+          +activity rows claim SUCCESS on 09-02, evidence_92 (09-15 11:44
+          +, before audit_at 09-15 12:00) shows the profile still returne
+          +d with the email, and evidence_02 (09-17) is after audit_at an
+          +d must be ignored. Laid out the resolution rules: drop post-au
+          +dit_at items, evidence beats activity claims, latest evidence 
+          +wins, any copy present means present, and watch for recreation
+          + by sync/restore after deletion.                              
+      248 +                                                              
+      249 +Actions:                                                      
+      250 +* Python/grep probe over sample outputs to find a resource wit
+          +h multiple mentions; read case_24 rows in evidence_92, evidenc
+          +e_02 and system_activity                                      
+      251 +* Appended turn entry to log.txt                              
+      252 +                                                              
+      253 +Context:                                                      
+      254 +tool=Claude Code                                              
+      255 +model=claude-opus-5-5                                         
+      256 +branch=main                                                   
+      257 +repo_root=/home/moaz-dev/dev/projects/hackerrank-orchestrate-o
+          +ctober26                                                      
+      258 +worktree=main                                                 
+      259 +parent_agent=none                                             
+      260 +                                                              
+
+● Part 1: What audit_at is
+
+  Think of audit_at as the moment the auditor takes a photo of all the systems.
+  Each case asks one thing: was this person's data really gone at that moment?
+
+  The dataset isn't a single moment. It covers almost a whole year, from
+  evidence captured 2026-01-29 to 2026-10-01, and all 518 cases share the same
+  files. Each case has its own photo moment, so for any given case some evidence
+  comes from its "future".
+
+  Why we care
+
+  1. The expected answer is fixed to that moment. The grader's answer is "what
+     was true at audit_at". If someone fixed the leak a week later, the answer
+     is still INCOMPLETE, because at the photo moment the data was still there.
+  2. Things change over time. Data gets deleted, synced back and restored.
+     Looking at the wrong moment gives the wrong answer.
+  3. You can't cite the future. A finding or verification must cite evidence
+     that existed at audit_at. Citing a file captured afterwards is wrong by the
+     contract.
+
+  The rule: for each case, use only evidence captured, and activity that
+  happened, at or before audit_at. Ignore everything after it, as if it doesn't
+  exist.
+
+  ---
+
+  Part 2: "Deciding which mention wins"
+
+  One record usually shows up in several places: activity-log rows, a database
+  snapshot, a JSON export, a screenshot. They often disagree. You need fixed
+  rules for which one to believe.
+
+  A real example: case_24, record account_5334 (Keiko Nakamura's account)
+
+  audit_at = 2026-09-15 12:00. Every mention of this record, in time order:
+
+  ┌───────┬───────────────────┬───────────────────────────────┬────────────┐
+  │ When  │      Source       │         What it says          │    Kind    │
+  ├───────┼───────────────────┼───────────────────────────────┼────────────┤
+  │ 09-02 │                   │ "DELETE account_5334 →        │            │
+  │       │ activity_3599     │ SUCCESS"                      │ claim      │
+  │ 10:59 │                   │                               │            │
+  ├───────┼───────────────────┼───────────────────────────────┼────────────┤
+  │ 09-02 │                   │                               │            │
+  │       │ reported_status   │ "COMPLETE"                    │ claim      │
+  │ 12:00 │                   │                               │            │
+  ├───────┼───────────────────┼───────────────────────────────┼────────────┤
+  │ 09-02 │                   │ "Replication final checkpoint │            │
+  │       │ activity_3608     │  → SUCCESS"                   │ claim      │
+  │ 12:45 │                   │                               │            │
+  ├───────┼───────────────────┼───────────────────────────────┼────────────┤
+  │ 09-15 │ evidence_92 (JSON │ account_5334 → status_code:   │            │
+  │       │  export)          │ 200, email:                   │ proof      │
+  │ 11:44 │                   │ keiko.nakamura@gmail.com      │            │
+  ├───────┼───────────────────┼───────────────────────────────┼────────────┤
+  │ —     │ audit_at 09-15    │ ← photo moment                │            │
+  │       │ 12:00             │                               │            │
+  ├───────┼───────────────────┼───────────────────────────────┼────────────┤
+  │ 09-17 │ evidence_02       │ full profile: name, email,    │ proof, but │
+  │       │ (snapshot bundle) │ phone, ACTIVE                 │  after     │
+  │ 12:00 │                   │                               │ audit_at   │
+  └───────┴───────────────────┴───────────────────────────────┴────────────┘
+
+  Three sources say it's deleted. One says it's still there. Which wins?
+
+  → evidence_92 wins. It's real evidence, not a claim. It's the latest evidence
+  before audit_at. It shows the system still returning the account with her
+  email (200, not 404). So the record is PRESENT, and the expected answer is
+  REPORT_REMAINING_RECORD account_5334 evidence_92.
+
+  → evidence_02 doesn't count, even though it agrees. It was captured two days
+  after the photo moment. It can't be cited, and it couldn't have changed the
+  answer either.
+
+  The five rules
+
+  Apply them in this order for each record:
+
+  Rule 1: Drop everything after audit_at.
+
+  ▎ In case_24, evidence_02 (09-17) is dropped. In case_01, evidence_03 and
+  ▎ evidence_04 were dropped too.
+
+  Rule 2: Evidence beats claims.
+  Activity rows (reported_result = SUCCESS) and reported_status say what a
+  system believed it did. Snapshots, exports and screenshots show what actually
+  exists. When they disagree, the evidence wins.
+
+  ▎ In case_24, three SUCCESS claims lose to one export showing the account
+  ▎ still there.
+
+  Rule 3: The latest evidence wins.
+  If a March snapshot shows the record and an August snapshot shows it gone,
+  it's gone, as long as August is still before audit_at.
+
+  Rule 4: Any copy present means present.
+  A record counts as deleted only if it's gone from every copy: primary,
+  replicas, failover.
+
+  ▎ In case_05, the primary table was clean but the failover replica still had
+  ▎ account_005, so it's PRESENT.
+
+  Rule 5: Deleted data can come back.
+  A deletion followed by a sync or restore can recreate the data. Watch for
+  activity like "Active connector repopulated downstream resource X" or "Restore
+  job repopulated…" after a deletion. If the source process is still running,
+  it's also a recreation risk to report, as with the data flow in case_11.
+
+  The same thing as one picture
+
+  all mentions of a record
+          │
+          ▼
+   [1] drop anything after audit_at
+          │
+          ▼
+   [2] keep evidence, treat activity rows as hints only
+          │
+          ▼
+   [3] take the latest evidence ── [4] across ALL copies (primary + replicas)
+          │
+          ▼
+   [5] check: was it recreated after deletion? is a sync/restore still active?
+          │
+          ▼
+   final state at audit_at  →  compare with the rule  →  compliant or violation
+
+  In code: with the observations table from ingestion, rules 1–4 are mostly a
+  single query: for this resource, take evidence rows with captured_at <=
+  audit_at, across every copy of the system, keep the newest per copy, and call
+  it present if any copy has it. Rule 5 is a check on the activity rows for that
+  resource.
+
+❯ what counts as an evidence and what counts as a claim ?
+
+  Searched for 2 patterns, ran 1 shell command (ctrl+o to expand)
+
+● Bash(cd /home/moaz-dev/dev/projects/hackerrank-orchestrate-october26 &&
+      TS=$(date -u +%Y-%m-%dT%H:%M:%SZ) && cat >> log.txt <<EOF
+      ## [$TS] Define evidence vs claim…)
+  ⎿  2
+  ⎿  Updated log.txt (+20 -0)
+      258  worktree=main
+      259  parent_agent=none
+      260  
+      261 +## [2026-10-24T18:12:42Z] Define evidence vs claim            
+      262 +                                                              
+      263 +User Prompt (verbatim, secrets redacted):                     
+      264 +what counts as an evidence and what counts as a claim ?       
+      265 +                                                              
+      266 +Agent Response Summary:                                       
+      267 +Defined a claim as a statement that an action happened or succ
+          +eeded, and evidence as an observation of what exists at a poin
+          +t in time. Grounded with real data: activity operation rows an
+          +d reported_status are claims; SQL rows, JSON exports with stat
+          +us_code 200/404 and result FOUND/NOT_FOUND/IDENTIFIABLE, log l
+          +ookups with rows=0/http_status=404, and restore_candidate_eval
+          +uated eligible=true lines are evidence. Showed tombstone_9178 
+          +whose account_status DELETED label is contradicted by its popu
+          +lated name/email/phone/hash fields (trust fields, not labels),
+          + and classified activity check/repopulation rows and audit-log
+          + rows as citable observations while routine activity rows are 
+          +leads. Noted samples only cite evidence files, so prefer files
+          + when both exist.                                             
+      268 +                                                              
+      269 +Actions:                                                      
+      270 +* Listed evidence/logs, sampled a resource_lookup_trace log, c
+          +ounted status/result fields in evidence/records, inspected tom
+          +bstone records and deletion_block log lines                   
+      271 +* Appended turn entry to log.txt                              
+      272 +                                                              
+      273 +Context:                                                      
+      274 +tool=Claude Code                                              
+      275 +model=claude-opus-5-5                                         
+      276 +branch=main                                                   
+      277 +repo_root=/home/moaz-dev/dev/projects/hackerrank-orchestrate-o
+          +ctober26                                                      
+      278 +worktree=main                                                 
+      279 +parent_agent=none                                             
+      280 +                                                              
+
+● One question tells them apart:
+
+  ▎ Is this someone saying an action happened, or someone looking and seeing
+  ▎ what's there?
+
+  - Claim: a report that an action was done or succeeded. "I deleted it." "Sync
+    finished." "Status: COMPLETE."
+  - Evidence: an observation of what exists, or doesn't, at a specific time. "I
+    queried the table at 23:00 and this row is there." "Lookup returned 404."
+
+  A claim can be wrong, because the process may have failed silently. Evidence
+  shows the actual state.
+
+  ---
+
+  Claims (never trust these on their own)
+
+  Where: reported_status in the request
+  Example from the data: COMPLETE, PARTIALLY_COMPLETE, NOT_STARTED
+  ────────────────────────────────────────
+  Where: reported_result on action rows in system_activity.csv
+  Example from the data: DELETE_RECORD … account_5334 … SUCCESS
+  ────────────────────────────────────────
+  Where: Action wording in activity rows
+  Example from the data: "Deletion worker submitted primary profile…",
+  "…reported
+  the requested operation as completed", "Replication worker reported its final
+   checkpoint", "Policy action completed for X"
+  ────────────────────────────────────────
+  Where: Status labels inside records
+  Example from the data: "account_status": "DELETED" (see the tombstone trap
+  below)
+  ────────────────────────────────────────
+  Where: Classification activity
+  Example from the data: "Privacy intake classified request for X as
+  non-deletion": still read the request text yourself
+
+  Evidence (this decides the state)
+
+  ┌─────────────┬──────────────────────────────────────────────┬────────────┐
+  │    Where    │              What it looks like              │  What it   │
+  │             │                                              │   proves   │
+  ├─────────────┼──────────────────────────────────────────────┼────────────┤
+  │             │                                              │ present /  │
+  │ SQL         │ the row is in the table, or isn't            │ absent at  │
+  │ snapshots   │                                              │ capture    │
+  │             │                                              │ time       │
+  ├─────────────┼──────────────────────────────────────────────┼────────────┤
+  │             │ "status_code": 200 with profile fields, or   │ present /  │
+  │ JSON        │ 404; "result": "FOUND", "NOT_FOUND",         │ absent /   │
+  │ exports     │ "IDENTIFIABLE", "ANONYMIZED", "REDACTED"     │ exposed /  │
+  │             │                                              │ treated    │
+  ├─────────────┼──────────────────────────────────────────────┼────────────┤
+  │ Log lookups │ lookup_key="l.nascimento40@gmail.com" …      │ absent     │
+  │             │ rows="0" http_status="404"                   │            │
+  ├─────────────┼──────────────────────────────────────────────┼────────────┤
+  │             │ restore_candidate_evaluated …                │ restore    │
+  │ Backup logs │ resource_id="backup_8264" eligible="true"    │ risk is    │
+  │             │ deletion_block="false"                       │ active     │
+  ├─────────────┼──────────────────────────────────────────────┼────────────┤
+  │ Handover    │ search_052 | SEARCH_INDEX_ENTRY | FOUND |    │ present    │
+  │ TXT         │ novak.tomasz@icloud.com                      │            │
+  ├─────────────┼──────────────────────────────────────────────┼────────────┤
+  │ Screenshots │                                              │ whatever   │
+  │  / PDFs     │ what the screen or document shows            │ fields are │
+  │             │                                              │  visible   │
+  └─────────────┴──────────────────────────────────────────────┴────────────┘
+
+  Note that a log line saying profile_lookup_completed is still evidence.
+  "Completed" there refers to the lookup, and the content (rows="0", 404) is an
+  observation. Judge a line by what it shows, not by whether it contains the
+  word "completed".
+
+  ---
+
+  The trap: a claim inside an evidence file
+
+  From customer_data_snapshot_bundle_20260915.json:
+
+  { "resource_id": "tombstone_440",  "subject_reference": "user_541",
+    "name": null, "email": null, "phone": null, "email_hash": null,
+    "account_status": "DELETED" }                          ← label and fields
+  agree ✅
+
+  { "resource_id": "tombstone_9178", "subject_reference": "user_542",
+    "name": "Kofi Addo", "email": "addo.kofi@gmail.com",
+    "phone": "+233 24 991 1328", "email_hash": "4f4b9c98…",
+    "account_status": "DELETED" }                          ← label says deleted,
+  fields say otherwise ❌
+
+  Both say DELETED. But tombstone_9178 still holds the name, email, phone and
+  hash. The ACCOUNT_TOMBSTONE rule allows only the stable user_id. The status
+  label is a claim; the field values are the evidence. So this record gets
+  REPORT_EXPOSED_PII, not "compliant".
+
+  Rule: trust the fields, not the labels.
+
+  ---
+
+  The grey zone: the activity log isn't all claims
+
+  system_activity.csv mixes three kinds of rows:
+
+  Kind: Action claims
+  Examples: DELETE / REDACT / ANONYMIZE / SYNC with SUCCESS, "final checkpoint",
+
+  "policy action completed"
+  How to use it: Never proof. Only tells you which resource to check.
+  ────────────────────────────────────────
+  Kind: Checks (observations)
+  Examples: "Connector status check confirmed that data flow X remains enabled",
+
+  "Restore-access check confirmed that archive X can still be restored",
+  "Active connector repopulated downstream resource X"
+  How to use it: Evidence of an active flow or restore risk. Can be cited by
+  activity_id.
+  ────────────────────────────────────────
+  Kind: Routine events (leads)
+  Examples: index refresh, email sent, export created, cache refresh,
+  LINK_RESOURCE_IDENTITY
+  How to use it: Not proof of state. They tell you where copies may exist
+  (search
+  index, export, email log) or which resource belongs to which user. Follow
+  them up in the evidence files.
+
+  Two more sources can be cited:
+  - user_audit_log.csv rows (audit_id) are evidence about identity history, for
+    example proving an old email belonged to this user.
+  - activity_id for check rows like the ones above.
+
+  One caveat: all 32 samples cite only evidence files, never an activity_id.
+  Even in case_11, where activity_3817 also showed the flow enabled, the
+  expected answer cites evidence_03. So the working rule is: when a file and an
+  activity row prove the same thing, cite the file. Use an activity or audit row
+  only when no file covers it. We should check this against more samples when
+  we build the citation logic.
+
+  ---
+
+  How this goes into the code
+
+  During ingestion, tag every row in the observations table with a kind:
+
+  kind = 'evidence' | 'check' | 'claim' | 'lead'
+
+  - Deciding a record's state (step 5) uses only evidence, plus check for flows
+    and restores.
+  - Finding records (step 4) uses everything, including claim and lead rows,
+    because they point you to where to look.
+  - Citations prefer evidence files, then check rows.
